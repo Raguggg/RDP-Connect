@@ -1,9 +1,12 @@
+use std::{env, fs, io};
 use std::process::Command;
 
+
+use encoding_rs::UTF_16LE;
 use iced::widget::{button, column, text, text_input};
 use iced::window::{self, Position};
 use iced::{alignment, Alignment, Element, Size};
-
+use native_dialog::{MessageDialog, MessageType};
 use regex::Regex;
 
 #[allow(dead_code)]
@@ -25,10 +28,64 @@ fn is_connected(log_content: &str) -> bool {
     // If both connection and security protocol are found, we consider it connected
     connection_matches && security_matches
 }
+
+
+fn is_xfreerdp_installed() -> bool {
+    let output = Command::new("xfreerdp")
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(result) => result.status.success(),
+        Err(_) => false,
+    }
+}
+
+
+fn connect_rdp(username: &str, password: &str, ip: &str, rdp_file_path: &str) -> bool {
+    let program = "xfreerdp";
+
+    // Building the argument list conditionally
+    let mut args = vec![];
+
+    if !rdp_file_path.is_empty() {
+        args.push(format!("{}", rdp_file_path)); // Add the RDP file path if it's not empty
+    }else {
+        
+        args.push(format!("/v:{}", ip )); // Add the IP if rdp_file_path is empty\
+        args.push(format!("/u:{}", username)); // Add username
+    }
+   
+    args.push(format!("/p:{}", password)); // Add password
+    args.push("/cert-ignore".to_string()); // Add the cert-ignore flag
+
+    // Executing the command
+    let _status = Command::new(program)
+        .args(&args)
+        .spawn()
+        .expect("Failed to execute command");
+        // .wait()
+        // .expect("Failed to wait for command");
+
+    // status.success()
+    return  true;
+}
+
+fn pop_error(){
+    MessageDialog::new()
+    .set_type(MessageType::Info)
+    .set_title("Please install xfreerdp")
+    .set_text("This Software give only UI Please install `xfreerdp` ")
+    .show_alert()
+    .unwrap();
+   
+}
+
 struct RDPInput {
     ip: String,
     username: String,
     password: String,
+    rdp_file_path:String,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +103,7 @@ impl RDPInput {
             ip: String::new(),
             username: String::new(),
             password: String::new(),
+            rdp_file_path:String::new(),
         }
     }
 
@@ -62,40 +120,36 @@ impl RDPInput {
                 );
                 // xfreerdp /v:<hostname_or_ip> /u:<username> /p:<password> /cert-ignore
                 // create  this command
+                if connect_rdp(&self.username,&self.password,&self.ip,&self.rdp_file_path){
+                    std::process::exit(0);
+                }
 
-                let program = "xfreerdp";
+                // let program = "xfreerdp";
 
-                // let args = [];
-                let args = vec![
-                    format!("/v:{}", self.ip),
-                    format!("/u:{}", self.username),
-                    format!("/p:{}", self.password),
-                    "/cert-ignore".to_string(),
-                ];
+                // // let args = [];
+                // let args = vec![
+                //     format!("/v:{}", self.ip),
+                //     format!("/u:{}", self.username),
+                //     format!("/p:{}", self.password),
+                //     "/cert-ignore".to_string(),
+                // ];
 
-                // let program = "python3";
-                // let args = vec!["-u","/home/ragu/Desktop/rdp_linux/test.py"];
 
-                Command::new(program)
-                    .args(&args)
-                    .spawn()
-                    // .status()
-                    .expect("Failed to execute command");
+                // Command::new(program)
+                //     .args(&args)
+                //     .spawn()
+                //     // .status()
+                //     .expect("Failed to execute command");
                 // close the app
                 println!("Exiting...");
-                std::process::exit(0);
+                // std::process::exit(0);
             }
         }
         iced::Task::none()
     }
 
     fn view(&self) -> iced::Element<'_, Message> {
-        //  let row = widget::row![
-        //     widget::button("-").on_press(Message::DecrementCount),
-        //     widget::text(self.count.to_string()),
-        //     widget::button("+").on_press(Message::IncrementCount)
-        // ];
-        //  row.into()
+
         let subtitle = |title, content: Element<'static, Message>| {
             column![text(title).size(14), content]
                 .spacing(5)
@@ -105,14 +159,14 @@ impl RDPInput {
         let column = column![
             subtitle(
                 "Server IP",
-                text_input("", &self.ip)
+                text_input(&self.ip, &self.ip)
                     .on_input(Message::IpChanged)
                     .padding(5)
                     .into()
             ),
             subtitle(
                 "Username",
-                text_input("", &self.username)
+                text_input(&self.username, &self.username)
                     .on_input(Message::UsernameChanged)
                     .into()
             ),
@@ -149,7 +203,113 @@ impl RDPInput {
     }
 }
 
+
+
+
+
+
+fn parse_rdp_file(file_path: &str) -> Option<(String, String)> {
+    // Read the raw bytes of the file
+    let bytes = match fs::read(file_path) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("Error reading file {}: {}", file_path, e);
+            return None;
+        }
+    };
+
+    // Decode the bytes as UTF-16LE
+    let (decoded, _, _) = UTF_16LE.decode(&bytes);
+    let content = decoded.to_string();
+
+    if content.is_empty() {
+        println!("Error decoding file content for file: {}", file_path);
+        return None;
+    }
+
+    println!("File content read from {}", file_path);
+
+    // Regular expression to match the IP and username from the file
+    let ip_regex = match Regex::new(r"full address\s*:\s*s:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)") {
+        Ok(r) => r,
+        Err(e) => {
+            println!("Error compiling IP regex: {}", e);
+            return None;
+        }
+    };
+
+    let username_regex = match Regex::new(r"username\s*:\s*s:([^\r\n]+)") {
+        Ok(r) => r,
+        Err(e) => {
+            println!("Error compiling username regex: {}", e);
+            return None;
+        }
+    };
+
+    // Capture IP
+    let ip = match ip_regex.captures(&content) {
+        Some(caps) => caps.get(1).map_or_else(|| {
+            println!("IP not found in file content: {}", file_path);
+            None
+        }, |m| Some(m.as_str().to_string())),
+        None => {
+            println!("No IP match found in content for file: {}", file_path);
+            None
+        }
+    };
+
+    // Capture username
+    let username = match username_regex.captures(&content) {
+        Some(caps) => caps.get(1).map_or_else(|| {
+            println!("Username not found in file content: {}", file_path);
+            None
+        }, |m| Some(m.as_str().to_string())),
+        None => {
+            println!("No username match found in content for file: {}", file_path);
+            None
+        }
+    };
+
+    if let (Some(ip), Some(username)) = (ip, username) {
+        println!("Parsed IP: {}, Username: {}", ip, username);
+        Some((ip, username))
+    } else {
+        println!("Failed to parse IP or username for file: {}", file_path);
+        None
+    }
+}
+
+
 fn main() -> Result<(), iced::Error> {
+    if !is_xfreerdp_installed() {
+        pop_error();
+        let io_error = io::Error::new(iced::futures::io::ErrorKind::Other, "xfreerdp is not installed");
+        return Err(iced::Error::ExecutorCreationFailed(io_error));
+    }
+
+    let args: Vec<String> = env::args().collect();
+    let mut rdp_input = RDPInput::new();
+    print!("{}-len",args.len());
+    if args.len() > 1 {
+        println!("file is selected");
+        let file_path = &args[1];
+        print!("{:?}",file_path);
+        if let Some((ip, username)) = parse_rdp_file(file_path) {
+        
+        
+        rdp_input = RDPInput {
+            ip,
+            username,
+            password: String::new(),
+            rdp_file_path: file_path.clone(),
+        };
+    }
+
+    }else{
+        print!("file not passed");
+        
+    }
+   
     // run the app from main function
     iced::application("RDP connect", RDPInput::update, RDPInput::view)
         .theme(|_state| iced::Theme::Dark) 
@@ -160,18 +320,5 @@ fn main() -> Result<(), iced::Error> {
 
             ..Default::default()
         })
-        .run_with(|| (RDPInput::new(), iced::Task::none()))
+        .run_with(|| (rdp_input, iced::Task::none()))
 }
-
-// fn main() {
-//     // Sample log content (replace with actual log content you want to analyze)
-//     let log_content = "[14:24:18:570] [23022:23022] [DEBUG][com.freerdp.client.common] - This is Build configuration: BUILD_TESTING=OFF ...
-// [14:24:18:882] [23022:23023] [DEBUG][com.freerdp.core] - connecting to peer 37.27.189.41
-// [14:24:18:401] [23022:23023] [DEBUG][com.freerdp.core.nego] - Enabling NLA security: TRUE";
-
-//     // Check if the connection is established
-//     let connection_status = is_connected(log_content);
-
-//     // Print the result
-//     println!("Is connected: {}", connection_status);
-// }

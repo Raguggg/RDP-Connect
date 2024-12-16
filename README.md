@@ -1,4 +1,8 @@
-# RDP-Connect
+<div align="center">
+  <img src="assets/remote-desktop.png" alt="RDP-Connect Icon" />
+  <h1>RDP-Connect</h1>
+</div>
+
 
 RDP-Connect is a lightweight and user-friendly GUI application for Linux, designed to simplify remote desktop connections using the powerful xfreerdp API. I developer for me personal use it may also have bug
 

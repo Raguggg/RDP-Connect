@@ -58,6 +58,8 @@ fn connect_rdp(username: &str, password: &str, ip: &str, rdp_file_path: &str) ->
    
     args.push(format!("/p:{}", password)); // Add password
     args.push("/cert-ignore".to_string()); // Add the cert-ignore flag
+    args.push("/floatbar".to_string()); // Add  float-bar
+    args.push("/dynamic-resolution".to_string()); 
 
     // Executing the command
     let _status = Command::new(program)
@@ -174,6 +176,7 @@ impl RDPInput {
                 "Password",
                 text_input("", &self.password)
                     .on_input(Message::PasswordChanged)
+                    .on_submit(Message::Connect)
                     .into()
             )
         ];
